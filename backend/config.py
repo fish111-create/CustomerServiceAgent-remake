@@ -74,3 +74,102 @@ os.makedirs(Path(DATABASE_PATH).parent, exist_ok=True)  #建 data/
 os.makedirs(CHROMA_PERSIST_DIRECTORY, exist_ok=True)  #建 data/chroma_db
 os.makedirs(SOP_DIR, exist_ok=True)  #建 data/sop
 logger.info(f"文件系统初始化完成 - 上传目录:{UPLOAD_DIR}, 数据目录:{Path(DATABASE_PATH).parent}")  #启动日志
+
+
+# ================= 4. 通用 LLM 配置 =================   
+# LLM API 密钥（必需）
+# 从环境变量获取，不允许硬编码在代码中
+# 如果未设置，抛出明确的错误提示，避免服务在无效状态下启动
+LLM_API_KEY: str = os.getenv("LLM_API_KEY")   #故意不给默认值，缺了就是 None
+if not LLM_API_KEY:
+    error_msg = "LLM_API_KEY 未设置，请在 .env 文件中配置。"
+    logger.error(error_msg)  #打一条 ERROR 日志
+    raise ValueError(error_msg)  #抛出异常，阻止服务启动
+
+# LLM 服务基础 URL
+LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://api.example.com/v1")  #提供默认值，避免服务启动时出错
+
+# LLM 模型名称  
+LLM_MODEL_NAME: str = os.getenv("LLM_MODEL_NAME", "default-model")  #提供默认值，避免服务启动时出错
+
+logger.info(f"通用LLM配置已经加载")
+logger.debug(f"LLM 配置 - BASE_URL:{LLM_BASE_URL},MODEL_NAME:{LLM_MODEL_NAME}")
+
+# ================= 5. RAG 配置 ================= 
+# 用于千问 Embedding 模型的向量检索
+DASHSCOPE_API_KEY:str = os.getenv("DASHSCOPE_API_KEY")  #可选配置，默认空字符串
+if not DASHSCOPE_API_KEY:
+    error_msg = "DASHSCOPE_API_KEY 未设置，请在 .env 文件中配置。"
+    logger.error(error_msg)
+    raise ValueError(error_msg)  #抛出异常，阻止服务启动
+
+logger.info("RAG配置已加载")
+
+
+# ================= 6. ERP 系统配置 =================
+"""                                                           
+ERP 系统集成配置（可选）
+- 用于产品质保核验等业务场景
+- 支持对接企业真实 ERP 系统
+- 如果未配置，系统将自动降级为本地 SN 码规则模拟
+- 使用 Optional 类型提示，明确表示这些配置是可选的
+"""             
+ERP_API_URL: Optional[str] = os.getenv("ERP_API_URL")
+ERP_API_KEY: Optional[str] = os.getenv("ERP_API_KEY")
+
+# ================= 7. 启动配置摘要 ================= 
+"""                                                            
+启动时打印配置摘要
+- 使用标准化的日志格式，替代原有的 emoji 表情
+- 仅显示配置状态，不暴露敏感信息（如完整密钥）
+- 使用不同的日志级别（INFO/WARNING/ERROR）表示不同重要程度
+- 便于运维人员快速了解系统状态
+"""       
+logger.info("="*36)
+logger.info("系统配置加载完成")
+logger.info("="*36)
+
+# 服务和文件系统配置
+logger.info(f"服务地址：{HOST}:{PORT}")
+logger.info(f"数据库路径: {DATABASE_PATH}")
+logger.info(f"上传目录： {UPLOAD_DIR}")
+logger.info(f"="*36)
+
+# 通用 LLM 配置状态
+llm_status = "[OK]已配置" if LLM_API_KEY else "[FAIL]未配置"
+logger.info(f"通用LLM配置状态: {llm_status}")
+logger.info(f"LLM BASE URL: {LLM_BASE_URL}")
+logger.info(f"LLM MODEL NAME: {LLM_MODEL_NAME}")
+logger.info(f"="*36)
+
+# RAG 配置状态 
+rag_status = "[OK]已配置" if DASHSCOPE_API_KEY else "[FAIL]未配置"
+logger.info(f"RAG配置状态: {rag_status}")
+logger.info(f"="*36)
+
+# ERP 配置状态
+if ERP_API_URL:
+    logger.info(f"ERP 接口地址：{ERP_API_URL}([ok]已配置)")
+else:
+    logger.warning("ERP 接口地址:[WARN]未配置，系统将使用本地 SN 码规则模拟。")
+
+logger.info("="*36)
+
+
+# ================= 配置验证总结 ================= 
+required_configs = {
+    "LLM_API_KEY": LLM_API_KEY,
+    "DASHSCOPE_API_KEY": DASHSCOPE_API_KEY
+}
+
+missing_configs = [key for key, value in required_configs.items() if not value]  #列表推导式，筛出值为空的键
+
+if missing_configs:
+    logger.error(f"必须配置项缺少：{','.join(missing_configs)}")
+    logger.error("系统启动失败：缺少必需的配置项") 
+else:
+    logger.info("所有必需配置项验证通过，系统可以正常启动")
+
+# 配置加载完成标志，可用于其他模块的依赖检查
+CONFIG_LOADED = True  #标记本模块已完整执行
+logger.info("配置模块初始化完成")
