@@ -45,6 +45,44 @@ class ChatResponse(BaseModel):
     sn_code:Optional[str] = Field(None,description="SN 码")  #SN 码
     ocr_text:Optional[str] = Field(None,description="OCR 识别的文本内容")  #OCR 文本
 
+# 3. 工单内部数据结构 (严格约束) 
+class ExtractedDate(BaseModel):
+    """从多模态/文本中提取的结构化数据"""
+    order_id:Optional[str] = None
+    model_number:Optional[str] = None
+    batch_code:Optional[str] = None
+    sn_code:Optional[str]  = Field(None,description="设备序列号，用于质保核验")
+    evidence_images:Optional[List[str]] = Field(default_factory=list,description="证据图片的 URL 列表")  #用 factory 避免可变默认值共享
+    ocr_text:Optional[str] = Field(None,description="OCR 识别的文本内容")  #OCR 文本
 
+class AgentBusinessAssessment(BaseModel):
+    """智能体对业务场景的分析结果"""
+    issue_category:Optional[str] = Field(...,description="问题分类")  #问题分类(必填)
+    business_impact:BusinessImpact = Field(BusinessImpact.NORMAL,description="业务影响")  #业务影响(必填,有默认值)
+    urgency_level:UrgencyLevel = Field(...,description="紧急程度")  #紧急程度(必填)
+    warrnty_status:WarrantyStatus = Field(WarrantyStatus.UNKNOWN,description="质保状态")  #质保状态(必填,默认UNKNOWN)
+
+class Ticket(BaseModel):
+    """标准工单模型 (对应数据库存储结构)"""
+    ticket_id:str = Field(...,description="工单唯一标识")
+    created_id:str = Field(default_factory=lambda: datetime.now().isoformat())  #不传就自动生成当前时间
+    extracted_data:ExtractedDate 
+    agent_business_assessment:AgentBusinessAssessment
+    routing_decsion:str = Field(...,description="路由决策结果")  #路由决策结果
+    auto_reply_sent:str = Field(...,description="给用户发送的完整回复")  #是否已发送自动回复
+    status:TicketStatus = Field(TicketStatus.PENDING,description="工单状态")  #工单状态，默认未处理
+
+# 4. 列表查询与分页响应
+class TicketListResponse(BaseModel):
+    """工单列表分页响应"""
+    tickets:List[Ticket]
+    total:int = Field(...,description="符合条件总工单数")  #总工单数
+    limit:int = Field(...,description="当前页大小")
+    offset:int = Field(...,description="当前页偏移量")  
+
+class TicketUpdateRequest(BaseModel):   #更新状态的请求体
+    """更新工单状态请求"""
+    ticket_id:str
+    new_status:TicketStatus             #用枚举限制只能传四个合法状态
 
 
