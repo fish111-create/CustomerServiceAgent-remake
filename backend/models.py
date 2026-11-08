@@ -46,7 +46,7 @@ class ChatResponse(BaseModel):
     ocr_text:Optional[str] = Field(None,description="OCR 识别的文本内容")  #OCR 文本
 
 # 3. 工单内部数据结构 (严格约束) 
-class ExtractedDate(BaseModel):
+class ExtractedData(BaseModel):
     """从多模态/文本中提取的结构化数据"""
     order_id:Optional[str] = None
     model_number:Optional[str] = None
@@ -57,18 +57,18 @@ class ExtractedDate(BaseModel):
 
 class AgentBusinessAssessment(BaseModel):
     """智能体对业务场景的分析结果"""
-    issue_category:Optional[str] = Field(...,description="问题分类")  #问题分类(必填)
+    issue_category:str = Field(...,description="问题分类")  #问题分类(必填)
     business_impact:BusinessImpact = Field(BusinessImpact.NORMAL,description="业务影响")  #业务影响(必填,有默认值)
     urgency_level:UrgencyLevel = Field(...,description="紧急程度")  #紧急程度(必填)
-    warrnty_status:WarrantyStatus = Field(WarrantyStatus.UNKNOWN,description="质保状态")  #质保状态(必填,默认UNKNOWN)
+    warranty_status:WarrantyStatus = Field(WarrantyStatus.UNKNOWN,description="质保状态")  #质保状态(必填,默认UNKNOWN)
 
 class Ticket(BaseModel):
     """标准工单模型 (对应数据库存储结构)"""
     ticket_id:str = Field(...,description="工单唯一标识")
-    created_id:str = Field(default_factory=lambda: datetime.now().isoformat())  #不传就自动生成当前时间
-    extracted_data:ExtractedDate 
+    created_at:str = Field(default_factory=lambda: datetime.now().isoformat())  #不传就自动生成当前时间
+    extracted_data:ExtractedData 
     agent_business_assessment:AgentBusinessAssessment
-    routing_decsion:str = Field(...,description="路由决策结果")  #路由决策结果
+    routing_decision:str = Field(...,description="路由决策结果")  #路由决策结果
     auto_reply_sent:str = Field(...,description="给用户发送的完整回复")  #是否已发送自动回复
     status:TicketStatus = Field(TicketStatus.PENDING,description="工单状态")  #工单状态，默认未处理
 
