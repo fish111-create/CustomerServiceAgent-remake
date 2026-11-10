@@ -41,31 +41,31 @@ def init_db()->None:
             cursor = conn.cursor()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS tickets ( 
-                    id INTEGER PRIMARY KEY AUTOINCREMENT   #自增主键，内部用
-                    ticket_id TEXT UNIQUE NOT NULL         #业务工单号，唯一且非空
-                    raw_json TEXT NOT NULL  
-                    created_at TEXT NOT NULL
-                    status TEXT DEFAULT '未处理'            #处理状态，默认未处理
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,  
+                    ticket_id TEXT UNIQUE NOT NULL,         
+                    raw_json TEXT NOT NULL,  
+                    created_at TEXT NOT NULL,
+                    status TEXT DEFAULT '未处理'            
                 )
                 ''')
             # 工单号序列表：按天记录当前最大序号，确保 CS-YYYYMMDD-NNNN 每天从 0001 递增
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS ticket_sequences
                 (
-                    date_str TEXT PRIMARY KEY       #日期做主键，一天一行
-                    seq INTEGER NOT NULL DEFAULT 0  #当天已用到的最大序号
+                    date_str TEXT PRIMARY KEY,       
+                    seq INTEGER NOT NULL DEFAULT 0  
                 )
                 ''')
             # 产品注册表：SN 码 / 订单号 → 产品信息映射，支持智能体查询
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS product_registry
                 (
-                    sn_code TEXT PRIMARY KEY    #SN 做主键，天然去重
-                    order_id TEXT 
-                    model_number TEXT NOT NULL  #型号，必填
-                    batch_code TEXT             #批次
-                    production_year INTEGER     #生产年
-                    production_month INTEGER   
+                    sn_code TEXT PRIMARY KEY,    
+                    order_id TEXT,
+                    model_number TEXT NOT NULL,  
+                    batch_code TEXT,             
+                    production_year INTEGER,     
+                    production_month INTEGER,   
                     product_name TEXT   
                 )
                 ''')
@@ -85,7 +85,7 @@ def init_db()->None:
 
             conn.commit()
             logger.info("[INFO] 数据库初始化完成 (含 WAL 模式、ticket_sequences 序号列表、product_registry 产品注册表、status 列及索引)")
-    except sqlite3.error as e:
+    except sqlite3.Error as e:
         logger.error(f"[ERROR]数据库初始化失败：{e}")
         raise
 
@@ -96,20 +96,19 @@ def save_ticket(ticket:Dict[str,Any])->None:
     if not ticket_id:
         raise ValueError("[ERROR]ticket_id 不能为空")
 
-    raw_json = json.dump(ticket,ensure_ascii=False) # 转 JSON，中文不转义
-    created_at = ticket_id("create_at",datetime.now().isoformat())  #没有就取当前时间
+    raw_json = json.dumps(ticket,ensure_ascii=False) # 转 JSON，中文不转义
+    created_at = ticket.get("created_at",datetime.now().isoformat())  #没有就取当前时间
     status = ticket.get("status","未处理")
 
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''     #UPSERT 语句
-                    INSERT INFO ticket(ticket_id,raw_json,create_at,status)
-                    VALUE(?,?,?,?) ON CONFLICT(ticket_id) DO   #主键冲突时不报错，转更新
-
-                    UODATE SET
-                        raw_json = exclude.raw_json    #excluded 指"本次想插入的新值
-                        status = exclude.status
+            cursor.execute('''     
+                    INSERT INTO tickets(ticket_id,raw_json,created_at,status)
+                    VALUES(?,?,?,?) ON CONFLICT(ticket_id) DO   
+                    UPDATE SET
+                        raw_json = excluded.raw_json    
+                        status = excluded.status
 
             ''', (ticket_id, raw_json, created_at, status))
             conn.commit()
@@ -123,7 +122,7 @@ def update_ticket_status(ticket_id:str,new_status:str)->bool:    #改状态，�
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                UPDATE ticket
+                UPDATE tickets
                 SET status = ?
                 WHERE ticket_id = ?
             ''', (new_status, ticket_id)) 
@@ -144,7 +143,7 @@ def get_all_tickets(limit:int = 99999,offset:int = 0)->List[Dict[str,Any]]:   #�
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT raw_json,created_at.status
+                SELECT raw_json,created_at,status
                 FROM tickets
                 ORDER BY created_at DESC LIMIT ?
                 OFFSET ?
