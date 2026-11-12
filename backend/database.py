@@ -107,7 +107,7 @@ def save_ticket(ticket:Dict[str,Any])->None:
                     INSERT INTO tickets(ticket_id,raw_json,created_at,status)
                     VALUES(?,?,?,?) ON CONFLICT(ticket_id) DO   
                     UPDATE SET
-                        raw_json = excluded.raw_json    
+                        raw_json = excluded.raw_json,    
                         status = excluded.status
 
             ''', (ticket_id, raw_json, created_at, status))
@@ -153,7 +153,111 @@ def get_all_tickets(limit:int = 99999,offset:int = 0)->List[Dict[str,Any]]:   #�
 
             for row in rows:
                 try:
-                    ticket = json.loads(row["raw_json"])    #反序列化
-                    
+                    ticket = json.loads(row["raw_json"])
+                    if"created_at" not in ticket:
+                        ticket["created_at"] =  row["created_at"]
+                        # 以数据库中的状态为准，覆盖 JSON 中可能不一致的状态
+                    ticket["status"] = row["status"]
+                    tickets.append(ticket)
+                except json.JSONDecodeError as e:
+                    logger.info(f"[WARN] 解析工单JSON失败，跳过，错误:{e}")
+                    continue
+            return tickets
+    except sqlite3.Error as e:
+        logger.error(f"[ERROR]获取工单列表失败：{e}")
+        return  []
 
+def get_tickets_by_urgency(urgency_level:str)->List[Dict[str,Any]]:
+    """
+    【性能优化】按紧急度过滤工单。
+    使用 SQLite 的 json_extract 将过滤条件下推到数据库层，避免全表加载到 Python 内存。
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # 直接从 JSON 字段中提取 urgency_level 进行 SQL 层面比对
+            query = '''
+                    SELECT raw_json,created_at,status
+                    FROM tickets
+                    WHERE json_extract(raw_json,'$.agent_business_assessment.urgency_level') = ?
+                    ORDER BY created_at DESC\
+                    '''
+            cursor.execute(query,(urgency_level,))
+            rows = cursor.fetchall()
+            tickets = []
+
+            for row in rows:
+                try:
+                    ticket = json.loads(row["raw_json"])
+                    ticket["status"] = row["status"]
+                    tickets.append(ticket)
+                except json.JSONDecodeError:
+                    continue
+            return tickets
+    except sqlite3.Error as e:
+        logger.error(f"[ERROR] 按紧急度查询工单失败: {e}")
+        return []
+
+def get_ticket_by_id(ticket_id:str)->Optional[Dict[str,Any]]:
+    """根据 ID 获取单个工单详情"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT raw_json,status FROM tickets WHERE ticket_id=?',(ticket_id,))
+            row = cursor.fetchone()
+            if row:
+                ticket = json.loads(row["raw_json"])
+                ticket["status"]=row["status"]
+                return ticket
+            return None
+    except (sqlite3.Error,json.JSONDecodeError) as e:
+        logger.error(f"[ERROR]获取工单详情失败{ticket_id}:{e}")
+        return None
+
+def get_tickets_count()->int:
+    """获取工单总数"""
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM tickets') #COUNT 只返回一行一列
+            return cursor.fetchone()[0]
+    except sqlite3.Error as e:
+        logger.error(f"[ERROR]获取工单总数失败:{e}")
+        return 0
+
+def generate_ticket_id()->str:
+    """
+    生成符合赛事要求的工单号：CS-YYYYMMDD-NNNN
+    - NNNN 为当天从 0001 开始递增的序号
+    - 使用原子 UPSERT 保证线程安全
+    """
+    date_str = datetime.now().strftime("%Y%m%d")   #当天日期
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            # 原子递增：插入或更新当日序号 
+            cursor.execute('''
+                INSERT INTO ticket_sequences(date_str,seq) VALUES(?,1)
+                ON CONFLICT(date_str) DO UPDATE SET seq = seq+1
+
+            ''',(date_str,))
+            conn.commit()
+            # 重新读出递增后的值
+            cursor.execute('SELECT seq FROM ticket_sequences WHERE date_str=?',(date_str,))
+            row = cursor.fetchone()
+            seq = row["seq"] if row else 1
+            ticket_id = f"CS-{date_str}-{seq:04d}"
+            logger.info(f"[INFO]生成工单号:{ticket_id}")
+            return ticket_id
+    except sqlite3.Error as e:
+        logger.error(f"[ERROR]生成工单号失败:{e}")
+        # 降级：使用时间戳保证唯一性 
+        fallback = f"CS-{date_str}-{int(datetime.now().timestamp() * 1000) % 10000:04d}"
+        logger.warning(f"[WARN] 使用降级工单号: {fallback}")
+        return fallback
+
+
+
+
+        
 
